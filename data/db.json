@@ -1,0 +1,66 @@
+{
+  "users": [
+    {
+      "id": "3ae29fea8f7fb1c4fc05e4ed",
+      "username": "Gidiel",
+      "passwordHash": "d4fa434d6dfdeb516100a96ffc91fba8:969a216b571e8781853ce6d965e104262cf92547222cedd1aa9930b0f32df937",
+      "save": {
+        "totalStars": 6,
+        "chaosBest": 0,
+        "itemsBest": 24671,
+        "colorHuntBest": 0,
+        "flowBest": 0,
+        "stillBest": 0,
+        "classicBestScore": 11242,
+        "bestRunStars": 3,
+        "classicBestCombo": 7,
+        "solarBestScore": 203,
+        "magentaBestScore": 0,
+        "itemsNoItemBestScore": 385,
+        "strengthMeteorBest": 3,
+        "planetDestroyCount": 42,
+        "claimedChallenges": [],
+        "completedChallenges": [
+          "combo-5"
+        ],
+        "unlockedColors": [
+          "standard"
+        ],
+        "unlockedShapes": [
+          "orb"
+        ],
+        "unlockedTrails": [
+          "classic"
+        ],
+        "selectedColor": "standard",
+        "selectedShape": "orb",
+        "selectedTrail": "classic",
+        "rainbowUnlocked": false
+      },
+      "leaderboard": {
+        "classic": 11242,
+        "items": 24671,
+        "flow": 0,
+        "colorHunt": 0,
+        "chaos": 0
+      },
+      "createdAt": 1781352537892,
+      "updatedAt": 1781352722099
+    },
+    {
+      "id": "2ca10ec1007db1b65bd772fc",
+      "username": "SupabaseTest",
+      "passwordHash": "b8b8202527b47297e7ddbd04deeb1ea0:9ccc61a36b68e754ad389abffc9e1043459435721545bb3dbd9160f0e0795ace",
+      "save": {
+        "totalStars": 7
+      },
+      "leaderboard": {},
+      "createdAt": 1781366533606,
+      "updatedAt": 1781366533606
+    }
+  ],
+  "sessions": {
+    "3c1615dbf4a62638061d2c791b9456c465389f8e70f20f34": "3ae29fea8f7fb1c4fc05e4ed",
+    "6495d98660cee024fcb1a9b029d35a84ffbca40cbf68d813": "2ca10ec1007db1b65bd772fc"
+  }
+}
