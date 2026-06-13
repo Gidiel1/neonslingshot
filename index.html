@@ -2718,7 +2718,6 @@
       state.selectedShape = shapeId;
       saveShapeState();
       renderSkinShop();
-      render(performance.now());
     }
 
     function selectTrail(trailId) {
@@ -2730,7 +2729,6 @@
       state.selectedTrail = trailId;
       saveTrailState();
       renderSkinShop();
-      render(performance.now());
     }
 
     function renderShapePreviews() {
@@ -3026,7 +3024,6 @@
       state.selectedColor = colorId;
       saveColorState();
       renderSkinShop();
-      render(performance.now());
     }
 
     function buyPendingColor() {
@@ -3052,7 +3049,6 @@
       updateHud();
       renderSkinShop();
       closeColorDialog();
-      render(performance.now());
     }
 
     function syncViewportSize() {
@@ -4095,11 +4091,8 @@
       saveChallengeState();
       updateHud();
       showComboBadge(challengeRewardText(challenge));
-      addSparks(state.width * 0.5, state.height * 0.36, 48, 60, 340);
-      addWave(state.width * 0.5, state.height * 0.36, 48, 54);
       renderChallenges(challenge.id);
       renderSkinShop();
-      render(performance.now());
     }
 
     function rememberClassicCombo() {
@@ -4297,7 +4290,8 @@
         updateHud();
         return;
       }
-      const lost = Math.min(state.score, Math.max(250, Math.round(160 * state.combo)));
+      const lossRate = rand(0.05, 0.10);
+      const lost = Math.min(state.score, Math.ceil(state.score * lossRate));
       state.score -= lost;
       state.combo = 1;
       state.comboTimer = 0;
@@ -4306,7 +4300,7 @@
       addSparks(enemy.x, enemy.y, enemy.hue, 38, 310);
       addWave(enemy.x, enemy.y, enemy.hue, enemy.r + 18);
       state.enemies.splice(index, 1);
-      showComboBadge(`Black Hole -${lost}`, true);
+      showComboBadge(`Black Hole -${lost} (${Math.round(lossRate * 100)}%)`, true);
       updateHud();
     }
 
@@ -4578,6 +4572,10 @@
       window.visualViewport.addEventListener("scroll", handleViewportChange);
     }
     window.addEventListener("keydown", (event) => {
+      const typingTarget = event.target.closest?.("input, textarea, select");
+      if (!authScreen.hidden || typingTarget) {
+        return;
+      }
       if (event.code === "Escape" && state.running) {
         event.preventDefault();
         if (state.paused) {
