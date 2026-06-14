@@ -1054,6 +1054,14 @@
       box-shadow: 0 0 18px rgba(255, 209, 102, 0.08);
     }
 
+    .leaderboard-row.current-player {
+      border-color: rgba(53, 234, 255, 0.48);
+      background:
+        linear-gradient(135deg, rgba(53, 234, 255, 0.16), rgba(255, 209, 102, 0.08)),
+        rgba(244, 251, 255, 0.055);
+      box-shadow: 0 0 22px rgba(53, 234, 255, 0.16);
+    }
+
     .leaderboard-rank {
       color: var(--amber);
       font-weight: 950;
@@ -1565,6 +1573,9 @@
     let authMode = "login";
     let authToken = localStorage.getItem("neonSlingshotAuthToken") || "";
     let cloudSaveTimer = null;
+    let cloudSaveDirty = false;
+    let cloudSaveInFlight = null;
+    let cloudSaveRequested = false;
     let cloudRefreshPromise = null;
     let lastCloudRefreshAt = 0;
     let startRefreshPending = false;
@@ -2619,22 +2630,64 @@
       return payload;
     }
 
-    function scheduleCloudSave() {
+    function cloudSavePayload(includeToken = false) {
+      const payload = {
+        save: exportSaveProfile(),
+        leaderboard: leaderboardSnapshot()
+      };
+      if (includeToken) payload.token = authToken;
+      return payload;
+    }
+
+    function scheduleCloudSave(options = {}) {
       if (!cloudEnabled || !authToken || applyingCloudSave) return;
+      cloudSaveDirty = true;
       clearTimeout(cloudSaveTimer);
+      if (options.immediate) {
+        syncCloudSave();
+        return;
+      }
       cloudSaveTimer = setTimeout(syncCloudSave, 450);
     }
 
-    async function syncCloudSave() {
-      if (!cloudEnabled || !authToken) return;
-      try {
-        await apiRequest("/api/save", {
-          method: "POST",
-          body: JSON.stringify({ save: exportSaveProfile(), leaderboard: leaderboardSnapshot() })
-        });
-      } catch (error) {
-        console.warn(error);
+    async function syncCloudSave(options = {}) {
+      if (!cloudEnabled || !authToken) return false;
+      if (applyingCloudSave && !options.force) return false;
+      if (cloudSaveInFlight) {
+        cloudSaveRequested = true;
+        return cloudSaveInFlight;
       }
+      clearTimeout(cloudSaveTimer);
+      cloudSaveDirty = false;
+      cloudSaveInFlight = (async () => {
+        try {
+          await apiRequest("/api/save", {
+            method: "POST",
+            body: JSON.stringify(cloudSavePayload())
+          });
+          return true;
+        } catch (error) {
+          cloudSaveDirty = true;
+          console.warn(error);
+          return false;
+        } finally {
+          cloudSaveInFlight = null;
+          if (cloudSaveRequested || cloudSaveDirty) {
+            cloudSaveRequested = false;
+            scheduleCloudSave();
+          }
+        }
+      })();
+      return cloudSaveInFlight;
+    }
+
+    function flushCloudSaveBeacon() {
+      if (!cloudEnabled || !authToken || !cloudSaveDirty || !navigator.sendBeacon) return false;
+      clearTimeout(cloudSaveTimer);
+      const body = JSON.stringify(cloudSavePayload(true));
+      const sent = navigator.sendBeacon("/api/save", new Blob([body], { type: "application/json" }));
+      if (sent) cloudSaveDirty = false;
+      return sent;
     }
 
     async function refreshCloudSave(options = {}) {
@@ -2645,13 +2698,16 @@
       if (cloudRefreshPromise) return cloudRefreshPromise;
       cloudRefreshPromise = (async () => {
         try {
+          if (cloudSaveDirty) {
+            const saved = await syncCloudSave({ force: true });
+            if (!saved) return false;
+          }
           const payload = await apiRequest("/api/me");
           playerName = payload.user.username || playerName;
           localStorage.setItem("neonSlingshotUsername", playerName);
           usernameEl.textContent = playerName;
           applySaveProfile(saveWithLeaderboard(payload.user.save || {}, payload.user.leaderboard || {}));
           lastCloudRefreshAt = Date.now();
-          scheduleCloudSave();
           return true;
         } catch (error) {
           console.warn(error);
@@ -3944,6 +4000,15 @@
       return `${minutes}:${String(secs).padStart(2, "0")}.${tenths}`;
     }
 
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
     function leaderboardModes() {
       return [
         {
@@ -3982,12 +4047,13 @@
     async function renderLeaderboard() {
       const modes = leaderboardModes();
       const mode = modes[state.leaderboardIndex] || modes[0];
+      const localName = escapeHtml(playerName);
       leaderboardModeEl.textContent = mode.name;
       if (!cloudEnabled || !authToken) {
         leaderboardList.innerHTML = `
-          <div class="leaderboard-row">
+          <div class="leaderboard-row current-player">
             <div class="leaderboard-rank">#1</div>
-            <div class="leaderboard-name">${playerName}</div>
+            <div class="leaderboard-name">${localName}</div>
             <div class="leaderboard-score">${mode.format(mode.score)}</div>
           </div>
         `;
@@ -3997,18 +4063,22 @@
       try {
         const payload = await apiRequest(`/api/leaderboard/${mode.id}`);
         const rows = payload.rows || [];
-        leaderboardList.innerHTML = rows.length ? rows.map((row, index) => `
-          <div class="leaderboard-row">
-            <div class="leaderboard-rank">#${index + 1}</div>
-            <div class="leaderboard-name">${row.username}</div>
-            <div class="leaderboard-score">${mode.format(row.score)}</div>
-          </div>
-        `).join("") : `<div class="leaderboard-row"><div class="leaderboard-name">Noch keine Scores</div></div>`;
+        leaderboardList.innerHTML = rows.length ? rows.map((row, index) => {
+          const rank = Number(row.rank || index + 1);
+          const isCurrent = row.isCurrent || row.username === playerName;
+          return `
+            <div class="leaderboard-row${isCurrent ? " current-player" : ""}">
+              <div class="leaderboard-rank">#${rank}</div>
+              <div class="leaderboard-name">${escapeHtml(row.username)}</div>
+              <div class="leaderboard-score">${mode.format(row.score)}</div>
+            </div>
+          `;
+        }).join("") : `<div class="leaderboard-row"><div class="leaderboard-name">Noch keine Scores</div></div>`;
       } catch {
         leaderboardList.innerHTML = `
-          <div class="leaderboard-row">
+          <div class="leaderboard-row current-player">
             <div class="leaderboard-rank">#1</div>
-            <div class="leaderboard-name">${playerName}</div>
+            <div class="leaderboard-name">${localName}</div>
             <div class="leaderboard-score">${mode.format(mode.score)}</div>
           </div>
         `;
@@ -4591,7 +4661,7 @@
         state.colorHuntBest = Math.max(state.colorHuntBest, state.huntHits);
         localStorage.setItem("neonSlingshotColorHuntBest", String(state.colorHuntBest));
       }
-      scheduleCloudSave();
+      scheduleCloudSave({ immediate: true });
       state.running = false;
       state.paused = false;
       state.deathSequence = false;
@@ -4728,6 +4798,9 @@
     function handlePageVisibility() {
       if (document.hidden) {
         pauseBackgroundMusic();
+        if (!flushCloudSaveBeacon()) {
+          syncCloudSave();
+        }
         return;
       }
       if (!audioUnlocked) return;
@@ -4835,10 +4908,24 @@
 
     window.addEventListener("resize", handleViewportChange);
     document.addEventListener("visibilitychange", handlePageVisibility);
+    window.addEventListener("online", () => {
+      syncCloudSave({ force: true });
+      refreshCloudSave({ force: true });
+    });
     window.addEventListener("pagehide", () => {
       pauseBackgroundMusic();
-      syncCloudSave();
+      if (!flushCloudSaveBeacon()) {
+        syncCloudSave({ force: true });
+      }
     });
+    setInterval(() => {
+      if (!cloudEnabled || !authToken || document.hidden) return;
+      if (cloudSaveDirty) {
+        syncCloudSave();
+      } else if (!state.running) {
+        refreshCloudSave();
+      }
+    }, 15000);
     if (window.visualViewport) {
       window.visualViewport.addEventListener("resize", handleViewportChange);
       window.visualViewport.addEventListener("scroll", handleViewportChange);

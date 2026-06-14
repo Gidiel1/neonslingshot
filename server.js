@@ -51,13 +51,13 @@ async function handleApi(request, response, pathname) {
 
   if (request.method === "POST" && pathname === "/api/save") {
     const body = await readJson(request);
-    await saveUserData(tokenFromRequest(request), body);
+    await saveUserData(tokenFromRequest(request) || body.token, body);
     return sendJson(response, 200, { ok: true });
   }
 
   if (request.method === "GET" && pathname.startsWith("/api/leaderboard/")) {
     const mode = pathname.split("/").pop();
-    return sendJson(response, 200, { rows: await leaderboardFor(mode) });
+    return sendJson(response, 200, { rows: await leaderboardFor(mode, tokenFromRequest(request)) });
   }
 
   sendJson(response, 404, { error: "API nicht gefunden." });
