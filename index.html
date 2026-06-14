@@ -625,6 +625,38 @@
       text-shadow: 0 0 14px rgba(255, 209, 102, 0.7);
     }
 
+    .skin-combo-preview {
+      position: relative;
+      height: clamp(136px, 34cqh, 176px);
+      margin-top: 14px;
+      overflow: hidden;
+      border: 1px solid rgba(53, 234, 255, 0.16);
+      border-radius: 8px;
+      background:
+        radial-gradient(circle at 58% 44%, rgba(53, 234, 255, 0.1), transparent 36%),
+        linear-gradient(135deg, rgba(244, 251, 255, 0.035), rgba(6, 9, 18, 0.34));
+      box-shadow: inset 0 0 24px rgba(53, 234, 255, 0.05);
+    }
+
+    .skin-combo-preview canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: transparent;
+    }
+
+    .skin-combo-label {
+      position: absolute;
+      left: 12px;
+      top: 10px;
+      color: rgba(244, 251, 255, 0.6);
+      font-size: clamp(0.66rem, 3cqw, 0.78rem);
+      font-weight: 950;
+      text-transform: uppercase;
+      pointer-events: none;
+      text-shadow: 0 0 10px rgba(0, 0, 0, 0.82);
+    }
+
     .shop-section {
       margin-top: 22px;
       display: grid;
@@ -1402,6 +1434,10 @@
       <button class="skin-back-button" data-open-screen="mainScreen" type="button" aria-label="Zurück">‹</button>
       <h2>Skins</h2>
       <div class="shop-balance">★ <span id="skinStars">0</span></div>
+      <div class="skin-combo-preview">
+        <span class="skin-combo-label">Vorschau</span>
+        <canvas id="skinComboPreview" width="720" height="320" aria-label="Skin Kombination Vorschau"></canvas>
+      </div>
       <div class="shop-section">
         <div class="shop-section-title">Farben</div>
         <div class="color-grid" id="colorGrid"></div>
@@ -1424,6 +1460,7 @@
         <div class="shop-preview" id="colorBuyPreview"></div>
         <p class="shop-dialog-title" id="colorBuyTitle">Farbe</p>
         <div class="shop-dialog-price" id="colorBuyPrice">★ 0</div>
+        <button class="secondary-button" id="previewShopButton" type="button">Vorschau</button>
         <button id="buyColorButton" type="button">Kaufen</button>
         <button class="secondary-button" id="cancelColorButton" type="button">Abbrechen</button>
       </div>
@@ -1481,6 +1518,8 @@
     const leaderboardPrev = document.querySelector("#leaderboardPrev");
     const leaderboardNext = document.querySelector("#leaderboardNext");
     const challengeList = document.querySelector("#challengeList");
+    const skinComboPreview = document.querySelector("#skinComboPreview");
+    const skinComboCtx = skinComboPreview.getContext("2d");
     const colorGrid = document.querySelector("#colorGrid");
     const shapeGrid = document.querySelector("#shapeGrid");
     const trailGrid = document.querySelector("#trailGrid");
@@ -1488,6 +1527,7 @@
     const colorBuyPreview = document.querySelector("#colorBuyPreview");
     const colorBuyTitle = document.querySelector("#colorBuyTitle");
     const colorBuyPrice = document.querySelector("#colorBuyPrice");
+    const previewShopButton = document.querySelector("#previewShopButton");
     const buyColorButton = document.querySelector("#buyColorButton");
     const cancelColorButton = document.querySelector("#cancelColorButton");
     const comboEl = document.querySelector("#combo");
@@ -1525,6 +1565,9 @@
     let authMode = "login";
     let authToken = localStorage.getItem("neonSlingshotAuthToken") || "";
     let cloudSaveTimer = null;
+    let cloudRefreshPromise = null;
+    let lastCloudRefreshAt = 0;
+    let startRefreshPending = false;
     let applyingCloudSave = false;
     const musicVolumeMigrationKey = "neonSlingshotMusicDefault50Migration20260613";
     if (localStorage.getItem(musicVolumeMigrationKey) !== "done") {
@@ -1874,8 +1917,8 @@
       },
       {
         id: "orbit-1111-planets",
-        name: "Planetenzähler",
-        description: "Zerstöre insgesamt 1111 Planeten in Classic oder Items.",
+        name: "Zerstörungsdrang",
+        description: "Zerstöre insgesamt 1111 Planeten in Classic, Items oder Flow.",
         chain: "shape-orbit",
         type: "planet-destroys",
         targetPlanets: 1111,
@@ -1973,7 +2016,21 @@
     const initialSelectedShape = playerShapes.some((shape) => shape.id === savedPlayerShape) && initialUnlockedShapes.has(savedPlayerShape) ? savedPlayerShape : "orb";
     const initialSelectedTrail = playerTrails.some((trail) => trail.id === savedPlayerTrail) && initialUnlockedTrails.has(savedPlayerTrail) ? savedPlayerTrail : "classic";
     let pendingShopItem = null;
+    const previewSkinOverrides = {
+      color: null,
+      shape: null,
+      trail: null
+    };
     let skinPreviewFrame = null;
+    const skinComboMotion = {
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      trail: [],
+      lastTime: 0,
+      nextShotAt: 0
+    };
     const pointer = {
       down: false,
       id: null,
@@ -2580,6 +2637,35 @@
       }
     }
 
+    async function refreshCloudSave(options = {}) {
+      const force = Boolean(options.force);
+      if (!cloudEnabled || !authToken || state.running) return true;
+      const now = Date.now();
+      if (!force && now - lastCloudRefreshAt < 4000) return true;
+      if (cloudRefreshPromise) return cloudRefreshPromise;
+      cloudRefreshPromise = (async () => {
+        try {
+          const payload = await apiRequest("/api/me");
+          playerName = payload.user.username || playerName;
+          localStorage.setItem("neonSlingshotUsername", playerName);
+          usernameEl.textContent = playerName;
+          applySaveProfile(saveWithLeaderboard(payload.user.save || {}, payload.user.leaderboard || {}));
+          lastCloudRefreshAt = Date.now();
+          scheduleCloudSave();
+          return true;
+        } catch (error) {
+          console.warn(error);
+          if (force) {
+            showComboBadge("Cloud-Sync fehlgeschlagen", true);
+          }
+          return false;
+        } finally {
+          cloudRefreshPromise = null;
+        }
+      })();
+      return cloudRefreshPromise;
+    }
+
     function setAuthMode(mode) {
       authMode = mode;
       const registering = mode === "register";
@@ -2620,6 +2706,7 @@
       localStorage.setItem("neonSlingshotUsername", playerName);
       usernameEl.textContent = playerName;
       applySaveProfile(saveWithLeaderboard(user.save || {}, user.leaderboard || {}));
+      lastCloudRefreshAt = Date.now();
       authScreen.hidden = true;
       showScreen("mainScreen");
       scheduleCloudSave();
@@ -2683,6 +2770,140 @@
       };
     }
 
+    function previewColorById(colorId, time = performance.now()) {
+      const selected = playerColors.find((color) => color.id === colorId) || playerColors[0];
+      if (selected.id !== "chroma") {
+        return selected;
+      }
+      const hue = (time * 0.045) % 360;
+      return {
+        ...selected,
+        core: `hsl(${hue} 100% 92%)`,
+        glow: `hsl(${hue} 100% 62%)`,
+        ready: `hsl(${(hue + 96) % 360} 100% 66%)`
+      };
+    }
+
+    function skinPreviewSelection() {
+      return {
+        colorId: previewSkinOverrides.color || state.selectedColor,
+        shapeId: previewSkinOverrides.shape || state.selectedShape,
+        trailId: previewSkinOverrides.trail || state.selectedTrail
+      };
+    }
+
+    function launchSkinComboPreviewShot(w, h, time) {
+      const margin = 84;
+      const centerX = w * 0.5;
+      const centerY = h * 0.52;
+      const angle = rand(0, TAU);
+      const startDistance = Math.max(w, h) * 0.48 + margin;
+      const startX = centerX - Math.cos(angle) * startDistance;
+      const startY = centerY - Math.sin(angle) * startDistance;
+      const targetX = centerX + rand(-w * 0.045, w * 0.045);
+      const targetY = centerY + rand(-h * 0.07, h * 0.07);
+      const dx = targetX - startX;
+      const dy = targetY - startY;
+      const distance = Math.max(1, hypot(dx, dy));
+      const force = clamp(distance * 1.15, 380, 620);
+      skinComboMotion.x = startX;
+      skinComboMotion.y = startY;
+      skinComboMotion.vx = (dx / distance) * force;
+      skinComboMotion.vy = (dy / distance) * force;
+      skinComboMotion.trail = [];
+      skinComboMotion.nextShotAt = time + 100000;
+    }
+
+    function updateSkinComboMotion(w, h, time) {
+      if (!skinComboMotion.lastTime) {
+        skinComboMotion.lastTime = time;
+        skinComboMotion.nextShotAt = 0;
+      }
+      const dt = clamp((time - skinComboMotion.lastTime) / 1000, 0, 0.04);
+      skinComboMotion.lastTime = time;
+      const margin = 120;
+      const out =
+        skinComboMotion.x < -margin ||
+        skinComboMotion.x > w + margin ||
+        skinComboMotion.y < -margin ||
+        skinComboMotion.y > h + margin;
+      if (out || skinComboMotion.nextShotAt <= 0) {
+        launchSkinComboPreviewShot(w, h, time);
+      }
+      skinComboMotion.x += skinComboMotion.vx * dt;
+      skinComboMotion.y += skinComboMotion.vy * dt;
+      skinComboMotion.vx *= Math.pow(0.997, dt * 60);
+      skinComboMotion.vy *= Math.pow(0.997, dt * 60);
+      skinComboMotion.trail.unshift({ x: skinComboMotion.x, y: skinComboMotion.y, life: 0.58, r: 28 });
+      skinComboMotion.trail = skinComboMotion.trail.filter((dot) => {
+        dot.life -= dt;
+        return dot.life > 0;
+      }).slice(0, 22);
+    }
+
+    function drawSkinComboPreview() {
+      const rect = skinComboPreview.getBoundingClientRect();
+      const targetWidth = Math.max(1, Math.round(rect.width * (window.devicePixelRatio || 1)));
+      const targetHeight = Math.max(1, Math.round(rect.height * (window.devicePixelRatio || 1)));
+      if (skinComboPreview.width !== targetWidth || skinComboPreview.height !== targetHeight) {
+        skinComboPreview.width = targetWidth;
+        skinComboPreview.height = targetHeight;
+        skinComboMotion.lastTime = 0;
+        skinComboMotion.nextShotAt = 0;
+        skinComboMotion.trail = [];
+      }
+      const time = performance.now();
+      const { colorId, shapeId, trailId } = skinPreviewSelection();
+      const previewColor = previewColorById(colorId, time);
+      const w = skinComboPreview.width;
+      const h = skinComboPreview.height;
+      updateSkinComboMotion(w, h, time);
+      const cx = skinComboMotion.x;
+      const cy = skinComboMotion.y;
+      skinComboCtx.clearRect(0, 0, w, h);
+
+      const previewGlow = previewColor.glow.startsWith("hsl(")
+        ? previewColor.glow.replace("hsl(", "hsla(").replace(")", " / 0.16)")
+        : "rgba(53, 234, 255, 0.13)";
+      const glow = skinComboCtx.createRadialGradient(cx, cy, 5, cx, cy, w * 0.44);
+      glow.addColorStop(0, previewGlow);
+      glow.addColorStop(1, "rgba(0, 0, 0, 0)");
+      skinComboCtx.fillStyle = glow;
+      skinComboCtx.fillRect(0, 0, w, h);
+
+      skinComboCtx.save();
+      for (let i = skinComboMotion.trail.length - 1; i >= 0; i--) {
+        const dot = skinComboMotion.trail[i];
+        const alpha = dot.life / 0.58;
+        drawTrailStyle(skinComboCtx, trailId, dot.x, dot.y, dot.r * (0.56 + alpha * 0.44), alpha * 0.42, i, time);
+      }
+      skinComboCtx.restore();
+
+      skinComboCtx.save();
+      skinComboCtx.translate(cx, cy);
+      skinComboCtx.shadowBlur = 30;
+      skinComboCtx.shadowColor = previewColor.glow;
+      skinComboCtx.fillStyle = previewColor.core;
+      drawPlayerShape(shapeId, 28, time, skinComboCtx);
+      skinComboCtx.fill();
+      skinComboCtx.lineWidth = 4;
+      skinComboCtx.strokeStyle = previewColor.glow;
+      skinComboCtx.stroke();
+      drawPlayerShapeDetails(shapeId, 28, time, previewColor, skinComboCtx);
+      skinComboCtx.restore();
+
+      skinComboCtx.save();
+      skinComboCtx.globalAlpha = 0.78;
+      skinComboCtx.shadowBlur = 12;
+      skinComboCtx.shadowColor = previewColor.glow;
+      skinComboCtx.strokeStyle = previewColor.glow;
+      skinComboCtx.lineWidth = 3;
+      skinComboCtx.beginPath();
+      skinComboCtx.arc(cx, cy, 38, 0, TAU);
+      skinComboCtx.stroke();
+      skinComboCtx.restore();
+    }
+
     function renderSkinShop() {
       skinStarsEl.textContent = String(state.totalStars);
       colorGrid.innerHTML = playerColors.map((color) => {
@@ -2718,6 +2939,7 @@
       }).join("");
       renderShapePreviews();
       renderTrailPreviews();
+      drawSkinComboPreview();
     }
 
     function selectShape(shapeId) {
@@ -2727,6 +2949,7 @@
         return;
       }
       state.selectedShape = shapeId;
+      previewSkinOverrides.shape = null;
       saveShapeState();
       renderSkinShop();
     }
@@ -2738,6 +2961,7 @@
         return;
       }
       state.selectedTrail = trailId;
+      previewSkinOverrides.trail = null;
       saveTrailState();
       renderSkinShop();
     }
@@ -2914,6 +3138,7 @@
       }
       renderShapePreviews();
       renderTrailPreviews();
+      drawSkinComboPreview();
       skinPreviewFrame = requestAnimationFrame(animateSkinPreviews);
     }
 
@@ -3022,6 +3247,13 @@
       colorBuyDialog.hidden = false;
     }
 
+    function previewPendingShopItem() {
+      if (!pendingShopItem) return;
+      previewSkinOverrides[pendingShopItem.kind] = pendingShopItem.id;
+      closeColorDialog();
+      drawSkinComboPreview();
+    }
+
     function closeColorDialog() {
       pendingShopItem = null;
       colorBuyDialog.hidden = true;
@@ -3033,6 +3265,7 @@
         return;
       }
       state.selectedColor = colorId;
+      previewSkinOverrides.color = null;
       saveColorState();
       renderSkinShop();
     }
@@ -3056,6 +3289,7 @@
         state.selectedTrail = item.id;
         saveTrailState();
       }
+      previewSkinOverrides[item.kind] = null;
       saveStars();
       updateHud();
       renderSkinShop();
@@ -3165,7 +3399,13 @@
         playMenuMusic();
       }
       state.screen = screenId === "gameScreen" ? "game" : screenId;
+      if (screenId !== "gameScreen" && screenId !== "authScreen") {
+        refreshCloudSave();
+      }
       if (screenId === "skinsScreen") {
+        skinComboMotion.lastTime = 0;
+        skinComboMotion.nextShotAt = 0;
+        skinComboMotion.trail = [];
         renderSkinShop();
         startSkinPreviewAnimation();
       } else if (screenId === "challengesScreen") {
@@ -3186,6 +3426,11 @@
       } else {
         stopSkinPreviewAnimation();
         closeColorDialog();
+      }
+      if (screenId !== "skinsScreen") {
+        previewSkinOverrides.color = null;
+        previewSkinOverrides.shape = null;
+        previewSkinOverrides.trail = null;
       }
       if (screenId !== "mainScreen") {
         closeSettings();
@@ -3281,12 +3526,26 @@
       }
     }
 
+    async function startModeFresh(modeId = "classic") {
+      if (startRefreshPending || state.running) return;
+      startRefreshPending = true;
+      if (cloudEnabled && authToken) {
+        const fresh = await refreshCloudSave({ force: true });
+        if (!fresh) {
+          startRefreshPending = false;
+          return;
+        }
+      }
+      startRefreshPending = false;
+      startMode(modeId);
+    }
+
     function resetGame() {
-      startMode("classic");
+      startModeFresh("classic");
     }
 
     function restartCurrentMode() {
-      startMode(state.mode || "classic");
+      startModeFresh(state.mode || "classic");
     }
 
     function updateHud() {
@@ -4161,7 +4420,7 @@
     }
 
     function rememberPlanetDestroy(enemy) {
-      if (state.mode !== "classic" && state.mode !== "items") return;
+      if (state.mode !== "classic" && state.mode !== "items" && state.mode !== "flow") return;
       if (enemy.type !== "normal" && enemy.type !== "armored") return;
       state.planetDestroyCount += 1;
       savePlanetDestroyCount();
@@ -4475,6 +4734,7 @@
       if (state.running && !state.paused && !state.deathSequence) {
         playBackgroundMusic();
       } else if (state.screen !== "game") {
+        refreshCloudSave();
         playMenuMusic();
       }
     }
@@ -4522,7 +4782,7 @@
       }
       const button = event.target.closest("[data-play-mode]");
       if (!button) return;
-      startMode(button.dataset.playMode);
+      startModeFresh(button.dataset.playMode);
     });
     closeModeInfoButton.addEventListener("click", closeModeInfo);
     modeInfoDialog.addEventListener("click", (event) => {
@@ -4556,6 +4816,7 @@
       selectTrail(slot.dataset.trailId);
     });
     buyColorButton.addEventListener("click", buyPendingColor);
+    previewShopButton.addEventListener("click", previewPendingShopItem);
     cancelColorButton.addEventListener("click", closeColorDialog);
     colorBuyDialog.addEventListener("click", (event) => {
       if (event.target === colorBuyDialog) {
