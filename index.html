@@ -2602,13 +2602,24 @@
       authUsername.focus();
     }
 
+    function saveWithLeaderboard(save = {}, leaderboard = {}) {
+      return {
+        ...save,
+        classicBestScore: Math.max(Number(save.classicBestScore || 0), Number(leaderboard.classic || 0)),
+        itemsBest: Math.max(Number(save.itemsBest || 0), Number(leaderboard.items || 0)),
+        flowBest: Math.max(Number(save.flowBest || 0), Number(leaderboard.flow || 0)),
+        colorHuntBest: Math.max(Number(save.colorHuntBest || 0), Number(leaderboard.colorHunt || 0)),
+        chaosBest: Math.max(Number(save.chaosBest || 0), Number(leaderboard.chaos || 0))
+      };
+    }
+
     function finishAuthSession(user, token) {
       authToken = token || authToken;
       if (authToken) localStorage.setItem("neonSlingshotAuthToken", authToken);
       playerName = user.username || "Neon Pilot";
       localStorage.setItem("neonSlingshotUsername", playerName);
       usernameEl.textContent = playerName;
-      applySaveProfile(user.save || {});
+      applySaveProfile(saveWithLeaderboard(user.save || {}, user.leaderboard || {}));
       authScreen.hidden = true;
       showScreen("mainScreen");
       scheduleCloudSave();
