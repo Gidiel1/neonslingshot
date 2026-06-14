@@ -3347,6 +3347,7 @@
       }
       previewSkinOverrides[item.kind] = null;
       saveStars();
+      scheduleCloudSave({ immediate: true });
       updateHud();
       renderSkinShop();
       closeColorDialog();
